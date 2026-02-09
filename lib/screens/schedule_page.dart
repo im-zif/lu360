@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/schedule.dart';
 import '../services/schedule_service.dart';
+import 'map_screen.dart';
 
 class SchedulePage extends StatefulWidget {
   const SchedulePage({super.key});
@@ -12,6 +13,7 @@ class SchedulePage extends StatefulWidget {
 }
 
 class _SchedulePageState extends State<SchedulePage> {
+
   String selectedBatch = "61";
   String selectedSection = "E";
 
@@ -101,7 +103,24 @@ class _SchedulePageState extends State<SchedulePage> {
                   return ListView.builder(
                     physics: const BouncingScrollPhysics(),
                     itemCount: snapshot.data!.length,
-                    itemBuilder: (context, index) => ScheduleCard(item: snapshot.data![index]),
+                    itemBuilder: (context, index) {
+                      final scheduleItem = snapshot.data![index];
+                      return ScheduleCard(
+                        item: scheduleItem,
+                        onTap: () {
+                          print("DEBUG: Room: ${scheduleItem.roomNo}, Model Floor: ${scheduleItem.floor}");
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => MapScreen(
+                                targetRoomId: scheduleItem.roomNo,
+                                targetFloor: scheduleItem.floor, // Should now be 1.0 or 2.0
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
                   );
                 },
               ),
@@ -206,7 +225,9 @@ class _SchedulePageState extends State<SchedulePage> {
 
 class ScheduleCard extends StatelessWidget {
   final Schedule item;
-  const ScheduleCard({super.key, required this.item});
+  final VoidCallback onTap; // Add this callback
+  const ScheduleCard({super.key, required this.item, required this.onTap});
+  
 
   String _formatTime(String time) {
     if (time.isEmpty) return "";
@@ -220,90 +241,93 @@ class ScheduleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 18),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Time Column
-          SizedBox(
-            width: 75,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                _formatTime(item.startTime),
-                style: const TextStyle(color: Colors.black38, fontSize: 13, fontWeight: FontWeight.bold),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 18),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Time Column
+            SizedBox(
+              width: 75,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _formatTime(item.startTime),
+                  style: const TextStyle(color: Colors.black38, fontSize: 13, fontWeight: FontWeight.bold),
+                ),
               ),
             ),
-          ),
-          // Content Card
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 12, offset: const Offset(0, 4)),
-                ],
-                border: Border.all(color: Colors.black.withOpacity(0.03)),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 4,
-                    height: 55,
-                    decoration: BoxDecoration(
-                      color: item.color, // Keeps the color strip from the model
-                      borderRadius: BorderRadius.circular(10),
+            // Content Card
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 12, offset: const Offset(0, 4)),
+                  ],
+                  border: Border.all(color: Colors.black.withOpacity(0.03)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 4,
+                      height: 55,
+                      decoration: BoxDecoration(
+                        color: item.color, // Keeps the color strip from the model
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.courseCode,
-                          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 17),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          item.teacherName,
-                          style: const TextStyle(color: Colors.black54, fontSize: 14, fontWeight: FontWeight.w500),
-                        ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            const Icon(Icons.location_on_rounded, size: 14, color: Colors.blueAccent),
-                            const SizedBox(width: 4),
-                            Text(
-                              item.roomNo,
-                              style: const TextStyle(color: Colors.black45, fontSize: 13, fontWeight: FontWeight.w500),
-                            ),
-                            const Spacer(),
-                            if (item.isOnline)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: const Text(
-                                  "ONLINE",
-                                  style: TextStyle(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold),
-                                ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.courseCode,
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black, fontSize: 17),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            item.teacherName,
+                            style: const TextStyle(color: Colors.black54, fontSize: 14, fontWeight: FontWeight.w500),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              const Icon(Icons.location_on_rounded, size: 14, color: Colors.blueAccent),
+                              const SizedBox(width: 4),
+                              Text(
+                                item.roomNo,
+                                style: const TextStyle(color: Colors.black45, fontSize: 13, fontWeight: FontWeight.w500),
                               ),
-                          ],
-                        ),
-                      ],
+                              const Spacer(),
+                              if (item.isOnline)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    "ONLINE",
+                                    style: TextStyle(color: Colors.green, fontSize: 10, fontWeight: FontWeight.bold),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

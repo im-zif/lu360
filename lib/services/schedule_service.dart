@@ -12,11 +12,14 @@ class ScheduleService {
     try {
       final response = await _supabase
           .from('schedule')
-          .select()
+          .select('*, rooms(floor)')
           .eq('day', dayName)    // Must match "Sunday", "Monday", etc.
           .eq('batch', batch)    // Filters for "61"
           .eq('section', section) // Filters for "E"
           .order('start_time', ascending: true);
+
+      // ADD THIS PRINT:
+      print("SUPABASE RAW RESPONSE: $response");
 
       return (response as List).map((item) => Schedule.fromMap(item)).toList();
     } catch (e) {

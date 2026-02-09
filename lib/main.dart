@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lu_360/screens/home_screen.dart';
 import 'package:lu_360/screens/login_screen.dart';
+import 'package:lu_360/services/auth_gate.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'screens/onboarding_screen.dart';
 
@@ -22,7 +23,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: const LoginScreen(),
+      home: const AuthGate(),
     );
   }
 }
