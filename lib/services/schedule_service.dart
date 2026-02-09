@@ -2,16 +2,25 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/schedule.dart';
 
 class ScheduleService {
-  final _client = Supabase.instance.client;
+  final _supabase = Supabase.instance.client;
 
-  Future<List<Schedule>> getScheduleByDay(String day) async {
-    final response = await _client
-        .from('classes')
-        .select()
-        .eq('day', day)
-        .order('start_time');
+  Future<List<Schedule>> getScheduleByDay({
+    required String dayName,
+    required String batch,
+    required String section
+  }) async {
+    try {
+      final response = await _supabase
+          .from('schedule')
+          .select()
+          .eq('day', dayName)    // Must match "Sunday", "Monday", etc.
+          .eq('batch', batch)    // Filters for "61"
+          .eq('section', section) // Filters for "E"
+          .order('start_time', ascending: true);
 
-    return response.map<Schedule>((e) => Schedule.fromMap(e)).toList();
+      return (response as List).map((item) => Schedule.fromMap(item)).toList();
+    } catch (e) {
+      throw Exception("Failed to fetch schedule: $e");
+    }
   }
 }
-//goes to schedule page

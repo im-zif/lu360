@@ -2,7 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/material.dart';
 import '../screens/home_screen.dart'; // if needed for NextClass
 import '../models/schedule.dart';
-import '../models/next_class.dart';
+// import '../models/next_class.dart';
 import '../screens/routine_screen.dart';
 
 class SupabaseService {

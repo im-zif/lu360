@@ -2,46 +2,39 @@ import 'package:flutter/material.dart';
 
 class Schedule {
   final String courseCode;
-  final String title;
+  final String teacherName;
   final String day;
   final String startTime;
   final String endTime;
-  final String location;
-  final Color color;
+  final String roomNo;
+  final bool isOnline;
 
   Schedule({
     required this.courseCode,
-    required this.title,
+    required this.teacherName,
     required this.day,
     required this.startTime,
     required this.endTime,
-    required this.location,
-    required this.color,
+    required this.roomNo,
+    required this.isOnline,
   });
 
   factory Schedule.fromMap(Map<String, dynamic> map) {
     return Schedule(
-      courseCode: map['course_code'],
-      title: map['title'],
-      day: map['day'],
-      startTime: map['start_time'],
-      endTime: map['end_time'],
-      location: map['location'],
-      color: _colorFromString(map['color']),
+      courseCode: map['course_code'] ?? 'No Code', // Matches table
+      teacherName: map['teacher_name'] ?? 'TBA',    // Matches table
+      day: map['day'] ?? '',
+      startTime: map['start_time'] ?? '',
+      endTime: map['end_time'] ?? '',
+      roomNo: map['room_no'] ?? 'TBA',             // NOT 'location'
+      isOnline: map['is_online'] ?? false,
     );
   }
 
-  static Color _colorFromString(String color) {
-    switch (color) {
-      case 'green':
-        return Colors.green;
-      case 'purple':
-        return Colors.purple;
-      case 'orange':
-        return Colors.orange;
-      default:
-        return Colors.blue;
-    }
+  // UI Helper: Generates a color based on the course code string
+  Color get color {
+    final int hash = courseCode.hashCode;
+    final List<Color> colors = [Colors.blue, Colors.purple, Colors.orange, Colors.teal, Colors.pink];
+    return colors[hash.abs() % colors.length];
   }
 }
-// goes to scedule service
