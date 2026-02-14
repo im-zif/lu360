@@ -14,13 +14,51 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   final MapController _mapController = MapController();
   double _currentFloor = 0;
   List<Polygon> _polygons = [];
   String? _highlightedRoomId;
   List<dynamic> _rawFeatures = [];
   bool _mapReady = false;
+
+  void _animatedMapMove(LatLng destLocation, double destZoom) {
+    // Create a locally scoped controller so multiple taps don't conflict
+    final controller = AnimationController(
+        duration: const Duration(milliseconds: 500),
+        vsync: this
+    );
+
+    final latTween = Tween<double>(
+        begin: _mapController.camera.center.latitude,
+        end: destLocation.latitude);
+    final lngTween = Tween<double>(
+        begin: _mapController.camera.center.longitude,
+        end: destLocation.longitude);
+    final zoomTween = Tween<double>(
+        begin: _mapController.camera.zoom,
+        end: destZoom);
+
+    final animation = CurvedAnimation(parent: controller, curve: Curves.fastOutSlowIn);
+
+    controller.addListener(() {
+      _mapController.move(
+        LatLng(latTween.evaluate(animation), lngTween.evaluate(animation)),
+        zoomTween.evaluate(animation),
+      );
+    });
+
+    // Clean up the controller after the animation finishes
+    animation.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        controller.dispose();
+      } else if (status == AnimationStatus.dismissed) {
+        controller.dispose();
+      }
+    });
+
+    controller.forward();
+  }
 
   List<Marker> _buildRoomLabels() {
     List<Marker> markers = [];
@@ -29,10 +67,10 @@ class _MapScreenState extends State<MapScreen> {
       final String roomId = feature['properties']['room_no']?.toString() ?? '';
       if (roomId.isEmpty || roomId == "null") continue;
 
-      // Get the center point of the room to place the label
       final List<LatLng> points = _extractPoints(feature['geometry']);
       if (points.isEmpty) continue;
 
+      // Calculate center for label placement
       double latSum = 0, lngSum = 0;
       for (var p in points) { latSum += p.latitude; lngSum += p.longitude; }
       LatLng center = LatLng(latSum / points.length, lngSum / points.length);
@@ -44,18 +82,21 @@ class _MapScreenState extends State<MapScreen> {
           point: center,
           width: 80,
           height: 40,
-          alignment: Alignment.center,
-          child: IgnorePointer( // Allows taps to pass through to the polygon layer
+          alignment: Alignment.center, // Keeps the label perfectly centered
+          child: IgnorePointer( // This is crucial so taps hit the polygons underneath
             child: Center(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 decoration: BoxDecoration(
-                  color: isHighlighted ? Colors.pink : Colors.white.withValues(alpha: 0.7),
+                  color: isHighlighted ? Colors.deepOrange : Colors.white.withValues(alpha: 0.5),
                   borderRadius: BorderRadius.circular(4),
                   border: Border.all(color: isHighlighted ? Colors.white : Colors.black26, width: 1),
                 ),
                 child: Text(
                   roomId,
+                  // FIXED: 'overflow' belongs directly to the Text widget, not TextStyle
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
@@ -179,9 +220,9 @@ class _MapScreenState extends State<MapScreen> {
         points: points,
         // Using withValues to avoid deprecated withOpacity
         color: isMatch
-            ? Colors.pink.withValues(alpha: 0.8)
-            : Colors.blue.withValues(alpha: 0.3),
-        borderColor: Colors.blue,
+            ? Colors.orangeAccent.withValues(alpha: 0.8)
+            : Colors.brown.withValues(alpha: 1),
+        borderColor: Colors.black,
         borderStrokeWidth: 2,
       ),
     );
@@ -280,7 +321,7 @@ class _MapScreenState extends State<MapScreen> {
           // Move the map
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
-              _mapController.move(center, 19.5);
+              _animatedMapMove(center, 20.5);
             }
           });
         }
@@ -329,7 +370,7 @@ class _MapScreenState extends State<MapScreen> {
                 userAgentPackageName: 'com.imtiaz.lu360',
               ),
               PolygonLayer(polygons: _polygons),
-              if (_mapReady && _mapController.camera.zoom > 18.5)
+              if (_mapReady && _mapController.camera.zoom > 20.0)
                 MarkerLayer(markers: _buildRoomLabels()),
             ],
           ),
