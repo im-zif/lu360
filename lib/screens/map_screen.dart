@@ -23,7 +23,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   bool _mapReady = false;
 
   void _animatedMapMove(LatLng destLocation, double destZoom) {
-    // Create a locally scoped controller so multiple taps don't conflict
     final controller = AnimationController(
         duration: const Duration(milliseconds: 500),
         vsync: this
@@ -48,11 +47,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       );
     });
 
-    // Clean up the controller after the animation finishes
     animation.addStatusListener((status) {
-      if (status == AnimationStatus.completed) {
-        controller.dispose();
-      } else if (status == AnimationStatus.dismissed) {
+      if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
         controller.dispose();
       }
     });
@@ -65,12 +61,21 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     for (var feature in _rawFeatures) {
       final String roomId = feature['properties']['room_no']?.toString() ?? '';
-      if (roomId.isEmpty || roomId == "null") continue;
+      // We don't want to label the "walls" or empty IDs
+      if (roomId.isEmpty || roomId == "null" || roomId.toLowerCase() == 'wall' || roomId.toLowerCase() == 'walls') continue;
 
-      final List<LatLng> points = _extractPoints(feature['geometry']);
+      final geometry = feature['geometry'];
+      List<LatLng> points = [];
+
+      // For labels, we only care about the outer boundary (the first ring)
+      if (geometry['type'] == 'Polygon') {
+        points = (geometry['coordinates'][0] as List).map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
+      } else if (geometry['type'] == 'MultiPolygon') {
+        points = (geometry['coordinates'][0][0] as List).map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
+      }
+
       if (points.isEmpty) continue;
 
-      // Calculate center for label placement
       double latSum = 0, lngSum = 0;
       for (var p in points) { latSum += p.latitude; lngSum += p.longitude; }
       LatLng center = LatLng(latSum / points.length, lngSum / points.length);
@@ -80,21 +85,20 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       markers.add(
         Marker(
           point: center,
-          width: 80,
-          height: 40,
-          alignment: Alignment.center, // Keeps the label perfectly centered
-          child: IgnorePointer( // This is crucial so taps hit the polygons underneath
+          width: 60,
+          height: 20,
+          alignment: Alignment.center,
+          child: IgnorePointer(
             child: Center(
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 decoration: BoxDecoration(
-                  color: isHighlighted ? Colors.deepOrange : Colors.white.withValues(alpha: 0.5),
+                  color: isHighlighted ? Colors.deepOrange : Colors.white.withValues(alpha: 1),
                   borderRadius: BorderRadius.circular(4),
                   border: Border.all(color: isHighlighted ? Colors.white : Colors.black26, width: 1),
                 ),
                 child: Text(
                   roomId,
-                  // FIXED: 'overflow' belongs directly to the Text widget, not TextStyle
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
                   style: TextStyle(
@@ -113,36 +117,24 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return markers;
   }
 
-  List<LatLng> _extractPoints(Map<String, dynamic> geometry) {
-    List<LatLng> points = [];
+  // Updated to only return the outer boundary for hit-testing/centering
+  List<LatLng> _extractOuterPoints(Map<String, dynamic> geometry) {
     try {
       if (geometry['type'] == 'Polygon') {
-        // In your file, index [0] is often the building, [1] is the room
-        // We extract all rings to ensure we can tap any part of the geometry
-        for (var ring in geometry['coordinates']) {
-          points.addAll((ring as List).map((c) => LatLng(c[1].toDouble(), c[0].toDouble())));
-        }
+        return (geometry['coordinates'][0] as List).map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
       } else if (geometry['type'] == 'MultiPolygon') {
-        // MultiPolygons add one more level of nesting
-        for (var poly in geometry['coordinates']) {
-          for (var ring in poly) {
-            points.addAll((ring as List).map((c) => LatLng(c[1].toDouble(), c[0].toDouble())));
-          }
-        }
+        return (geometry['coordinates'][0][0] as List).map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
       }
     } catch (e) {
       debugPrint("Error extracting points: $e");
     }
-    return points;
+    return [];
   }
 
   double _calculateBoundingBoxArea(List<LatLng> points) {
     if (points.isEmpty) return double.infinity;
-
-    double minLat = points[0].latitude;
-    double maxLat = points[0].latitude;
-    double minLng = points[0].longitude;
-    double maxLng = points[0].longitude;
+    double minLat = points[0].latitude, maxLat = points[0].latitude;
+    double minLng = points[0].longitude, maxLng = points[0].longitude;
 
     for (var p in points) {
       if (p.latitude < minLat) minLat = p.latitude;
@@ -150,8 +142,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
       if (p.longitude < minLng) minLng = p.longitude;
       if (p.longitude > maxLng) maxLng = p.longitude;
     }
-
-    // Returns the area of the bounding box
     return (maxLat - minLat) * (maxLng - minLng);
   }
 
@@ -165,65 +155,69 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   Future<void> _loadFloorData(double floor) async {
     String floorName = floor == floor.toInt() ? floor.toInt().toString() : floor.toString();
-
     try {
       final String response = await rootBundle.loadString('assets/map/floor_$floorName.geojson');
       final data = json.decode(response);
-
-      List<Polygon> newPolygons = [];
-      // 1. Update the features list first
       _rawFeatures = data['features'];
+      _updatePolygons();
 
-      for (var feature in _rawFeatures) {
-        final geometry = feature['geometry'];
-        final String roomId = feature['properties']['room_no']?.toString() ?? '';
-
-        if (geometry['type'] == 'Polygon') {
-          for (int i = 0; i < geometry['coordinates'].length; i++) {
-            _addPolygonToList(geometry['coordinates'][i], roomId, newPolygons);
-          }
-        } else if (geometry['type'] == 'MultiPolygon') {
-          for (var poly in geometry['coordinates']) {
-            for (var ring in poly) {
-              _addPolygonToList(ring, roomId, newPolygons);
-            }
-          }
-        }
-      }
-
-      // 2. Update state
       setState(() {
-        _polygons = newPolygons;
         _currentFloor = floor;
       });
 
-      // 3. Trigger the focus ONLY after the UI has had a chance to build the new polygons
       if (_highlightedRoomId != null && _mapReady) {
-        // Small delay or post-frame callback ensures the map controller is ready for the new data
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _focusOnRoom(_highlightedRoomId!);
-        });
+        WidgetsBinding.instance.addPostFrameCallback((_) => _focusOnRoom(_highlightedRoomId!));
       }
     } catch (e) {
       debugPrint("Error loading GeoJSON: $e");
     }
   }
 
-  void _addPolygonToList(List coords, String roomId, List<Polygon> list) {
-    List<LatLng> points = coords.map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
+  void _updatePolygons() {
+    List<Polygon> newPolygons = [];
+    for (var feature in _rawFeatures) {
+      final geometry = feature['geometry'];
+      final String roomId = feature['properties']['room_no']?.toString() ?? '';
 
-    // Fuzzy matching to handle case-sensitivity between Supabase and QGIS
+      if (geometry['type'] == 'Polygon') {
+        _addPolygonWithHoles(geometry['coordinates'], roomId, newPolygons);
+      } else if (geometry['type'] == 'MultiPolygon') {
+        for (var poly in geometry['coordinates']) {
+          _addPolygonWithHoles(poly, roomId, newPolygons);
+        }
+      }
+    }
+    setState(() {
+      _polygons = newPolygons;
+    });
+  }
+
+  void _addPolygonWithHoles(List rings, String roomId, List<Polygon> list) {
+    if (rings.isEmpty) return;
+
+    // The first ring is ALWAYS the outer boundary
+    List<LatLng> outerPoints = (rings[0] as List).map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
+
+    // Any subsequent rings are HOLES
+    List<List<LatLng>> holes = [];
+    if (rings.length > 1) {
+      for (int i = 1; i < rings.length; i++) {
+        holes.add((rings[i] as List).map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList());
+      }
+    }
+
     bool isMatch = roomId.trim().toLowerCase() == _highlightedRoomId?.trim().toLowerCase();
+    bool isWall = roomId.toLowerCase() == 'wall' || roomId.toLowerCase() == 'walls';
 
     list.add(
       Polygon(
-        points: points,
-        // Using withValues to avoid deprecated withOpacity
+        points: outerPoints,
+        holePointsList: holes, // This is the crucial fix for your gap!
         color: isMatch
-            ? Colors.orangeAccent.withValues(alpha: 0.8)
-            : Colors.brown.withValues(alpha: 1),
+            ? Colors.orangeAccent.withValues(alpha: 1)
+            : (isWall ? Colors.brown : Colors.orangeAccent.withValues(alpha: 1)),
         borderColor: Colors.black,
-        borderStrokeWidth: 2,
+        borderStrokeWidth: isWall ? 2 : 1,
       ),
     );
   }
@@ -234,14 +228,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
     for (var feature in _rawFeatures) {
       final String roomId = feature['properties']['room_no']?.toString() ?? '';
-      if (roomId.isEmpty || roomId == "null") continue;
+      if (roomId.isEmpty || roomId == "null" || roomId.toLowerCase() == 'wall' || roomId.toLowerCase() == 'walls') continue;
 
-      final geometry = feature['geometry'];
-      // Logic to extract points from Polygon or MultiPolygon...
-      List<LatLng> points = _extractPoints(geometry);
-
+      List<LatLng> points = _extractOuterPoints(feature['geometry']);
       if (_isPointInPolygon(tapPoint, points)) {
-        // Heuristic: Smaller coordinate spread usually means a room, not a building
         double area = _calculateBoundingBoxArea(points);
         if (area < smallestArea) {
           smallestArea = area;
@@ -253,28 +243,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     if (foundRoomId != null) {
       setState(() {
         _highlightedRoomId = foundRoomId;
-        // Regenerate the polygons list to update the pink highlight colors
-        _polygons = _rawFeatures.map((feature) {
-          final geometry = feature['geometry'];
-          final String roomId = feature['properties']['room_no']?.toString() ?? '';
-          List<Polygon> featurePolys = [];
-
-          if (geometry['type'] == 'Polygon') {
-            for (var ring in geometry['coordinates']) {
-              _addPolygonToList(ring, roomId, featurePolys);
-            }
-          } else if (geometry['type'] == 'MultiPolygon') {
-            for (var poly in geometry['coordinates']) {
-              for (var ring in poly) {
-                _addPolygonToList(ring, roomId, featurePolys);
-              }
-            }
-          }
-          return featurePolys;
-        }).expand((i) => i).toList();
       });
-
-      // FIX: Call focus directly here so it happens on the 1st tap!
+      _updatePolygons();
       _focusOnRoom(foundRoomId);
     }
   }
@@ -294,39 +264,23 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   void _focusOnRoom(String roomId) {
     if (!_mapReady || _rawFeatures.isEmpty) return;
-
     try {
-
-      if (!_mapController.camera.center.latitude.isFinite) return;
       final searchId = roomId.trim().toLowerCase();
-
-      // Find the feature in the CURRENTLY LOADED floor features
       final targetFeature = _rawFeatures.firstWhere(
             (f) => f['properties']['room_no']?.toString().trim().toLowerCase() == searchId,
         orElse: () => null,
       );
 
       if (targetFeature != null) {
-        List<LatLng> allPoints = _extractPoints(targetFeature['geometry']);
-
+        List<LatLng> allPoints = _extractOuterPoints(targetFeature['geometry']);
         if (allPoints.isNotEmpty) {
-          // Calculate the centroid
           double latSum = 0, lngSum = 0;
-          for (var p in allPoints) {
-            latSum += p.latitude;
-            lngSum += p.longitude;
-          }
+          for (var p in allPoints) { latSum += p.latitude; lngSum += p.longitude; }
           LatLng center = LatLng(latSum / allPoints.length, lngSum / allPoints.length);
-
-          // Move the map
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              _animatedMapMove(center, 20.5);
-            }
+            if (mounted) _animatedMapMove(center, 21.0);
           });
         }
-      } else {
-        debugPrint("Room $roomId not found on Floor $_currentFloor");
       }
     } catch (e) {
       debugPrint("Focus error: $e");
@@ -340,6 +294,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         title: const Text("LU Campus Map"),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black,
+        elevation: 0,
       ),
       body: Stack(
         children: [
@@ -348,18 +303,12 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
             options: MapOptions(
               initialCenter: const LatLng(24.8694, 91.8051),
               initialZoom: 18.0,
-              onPositionChanged: (position, hasGesture) {
-                if (hasGesture) {
-                  setState(() {}); // Rebuilds the UI to check if zoom > 18.5
-                }
-              },
+              maxZoom: 22,
+              onPositionChanged: (position, hasGesture) => setState(() {}),
               onMapReady: () {
                 setState(() => _mapReady = true);
-                // Small delay allows the map to finish internal setup
                 Future.delayed(const Duration(milliseconds: 300), () {
-                  if (_highlightedRoomId != null && mounted) {
-                    _focusOnRoom(_highlightedRoomId!);
-                  }
+                  if (_highlightedRoomId != null && mounted) _focusOnRoom(_highlightedRoomId!);
                 });
               },
               onTap: (tapPosition, point) => _handleMapTap(point),
@@ -376,7 +325,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           ),
           Positioned(
             right: 20,
-            bottom: 100,
+            bottom: 40,
             child: Column(
               children: [3.0, 2.0, 1.0, 0.0].map((floor) {
                 return Padding(
@@ -387,8 +336,11 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                       _highlightedRoomId = null;
                       _loadFloorData(floor);
                     },
-                    backgroundColor: _currentFloor == floor ? Colors.pink : Colors.white,
-                    child: Text(floor % 1 == 0 ? floor.toInt().toString() : floor.toString()),
+                    backgroundColor: _currentFloor == floor ? Colors.deepOrange : Colors.white,
+                    child: Text(
+                      floor % 1 == 0 ? floor.toInt().toString() : floor.toString(),
+                      style: TextStyle(color: _currentFloor == floor ? Colors.white : Colors.black),
+                    ),
                   ),
                 );
               }).toList(),
