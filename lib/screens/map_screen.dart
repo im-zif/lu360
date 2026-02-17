@@ -93,9 +93,9 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                 decoration: BoxDecoration(
-                  color: isHighlighted ? Colors.deepOrange : Colors.white.withValues(alpha: 1),
+                  color: isHighlighted ? Colors.white : Colors.white.withValues(alpha: 1),
                   borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: isHighlighted ? Colors.white : Colors.black26, width: 1),
+                  border: Border.all(color: isHighlighted ? Colors.black : Colors.black26, width: 1),
                 ),
                 child: Text(
                   roomId,
@@ -104,7 +104,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.bold,
-                    color: isHighlighted ? Colors.white : Colors.black87,
+                    color: isHighlighted ? Colors.black : Colors.black87,
                   ),
                   textAlign: TextAlign.center,
                 ),
@@ -214,7 +214,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
         points: outerPoints,
         holePointsList: holes, // This is the crucial fix for your gap!
         color: isMatch
-            ? Colors.orangeAccent.withValues(alpha: 1)
+            ? Colors.yellow.withValues(alpha: 1)
             : (isWall ? Colors.brown : Colors.orangeAccent.withValues(alpha: 1)),
         borderColor: Colors.black,
         borderStrokeWidth: isWall ? 2 : 1,
