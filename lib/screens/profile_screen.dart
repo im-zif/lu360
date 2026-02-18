@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lu_360/services/auth_service.dart';
-
 import 'login_screen.dart';
+import 'package:lu_360/screens/personal_info_screen.dart';
+import 'package:lu_360/screens/notifications_screen.dart';
+import 'package:lu_360/screens/security_screen.dart';
+import 'package:lu_360/screens/help_screen.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -14,6 +21,30 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
 
   final authService = AuthService();
+  String? avatarUrl;
+  bool isUploading = false;
+  final SupabaseClient _supabase = Supabase.instance.client;
+  final ImagePicker _picker = ImagePicker();
+  @override
+  void initState() {
+    super.initState();
+    _loadAvatar();
+  }
+
+  Future<void> _loadAvatar() async {
+    final user = _supabase.auth.currentUser;
+
+    final data = await _supabase
+        .from('profiles')
+        .select('avatar_url')
+        .eq('id', user!.id)
+        .single();
+
+    setState(() {
+      avatarUrl = data['avatar_url'];
+    });
+  }
+
 
   void logOut() async{
     await authService.signOut();
@@ -24,6 +55,86 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     }
   }
+  Future<void> _uploadImage(ImageSource source) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+
+    final XFile? image = await _picker.pickImage(source: source);
+
+    if (image == null) return;
+
+    setState(() {
+      isUploading = true;
+    });
+
+    try {
+      final file = File(image.path);
+      final fileName = '${user.id}.jpg';
+
+      // Upload to Supabase Storage
+      await _supabase.storage
+          .from('avatars')
+          .upload(
+        fileName,
+        file,
+        fileOptions: const FileOptions(upsert: true),
+      );
+
+      // Get Public URL
+      final imageUrl =
+      _supabase.storage.from('avatars').getPublicUrl(fileName);
+
+      // Save URL to profiles table
+      await _supabase.from('profiles').update({
+        'avatar_url': imageUrl,
+      }).eq('id', user.id);
+
+      setState(() {
+        avatarUrl = imageUrl;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Upload failed")),
+      );
+    }
+
+    setState(() {
+      isUploading = false;
+    });
+  }
+
+  Future<void> _deleteImage() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+
+    setState(() {
+      isUploading = true;
+    });
+
+    try {
+      final fileName = '${user.id}.jpg';
+
+      await _supabase.storage.from('avatars').remove([fileName]);
+
+      await _supabase.from('profiles').update({
+        'avatar_url': null,
+      }).eq('id', user.id);
+
+      setState(() {
+        avatarUrl = null;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Delete failed")),
+      );
+    }
+
+    setState(() {
+      isUploading = false;
+    });
+  }
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -51,37 +162,116 @@ class _ProfileScreenState extends State<ProfileScreen> {
             // ================= 1. PROFILE HEADER =================
             Center(
               child: Stack(
+                alignment: Alignment.center,
                 children: [
+
+                  // Avatar
                   Container(
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       border: Border.all(color: Colors.white, width: 2),
                       boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, offset: const Offset(0, 5))
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.1),
+                          blurRadius: 10,
+                          offset: const Offset(0, 5),
+                        )
                       ],
                     ),
-                    child: const CircleAvatar(
+                    child: CircleAvatar(
                       radius: 65,
-                      backgroundImage: NetworkImage('https://i.pravatar.cc/300'), // Replace with local asset if needed
+                      backgroundImage: avatarUrl != null
+                          ? NetworkImage(avatarUrl!)
+                          : const AssetImage('assets/images/default_avatar.png')
+                      as ImageProvider,
                     ),
                   ),
+
+                  // Loading Overlay
+                  if (isUploading)
+                    const CircleAvatar(
+                      radius: 65,
+                      backgroundColor: Colors.black45,
+                      child: CircularProgressIndicator(
+                        color: Colors.white,
+                      ),
+                    ),
+
+                  // Edit Button
                   Positioned(
                     bottom: 5,
                     right: 5,
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF1E88E5),
-                        shape: BoxShape.circle,
-                        boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                    child: GestureDetector(
+                      onTap: isUploading
+                          ? null
+                          : () {
+                        showModalBottomSheet(
+                          context: context,
+                          shape: const RoundedRectangleBorder(
+                            borderRadius:
+                            BorderRadius.vertical(top: Radius.circular(20)),
+                          ),
+                          builder: (context) {
+                            return SafeArea(
+                              child: Wrap(
+                                children: [
+
+                                  // Camera
+                                  ListTile(
+                                    leading: const Icon(Icons.camera_alt),
+                                    title: const Text("Take Photo"),
+                                    onTap: () {
+                                      Navigator.pop(context);
+                                      _uploadImage(ImageSource.camera);
+                                    },
+                                  ),
+
+                                  // Gallery
+                                  ListTile(
+                                    leading: const Icon(Icons.photo_library),
+                                    title: const Text("Choose from Gallery"),
+                                    onTap: () {
+                                      Navigator.pop(context);
+                                      _uploadImage(ImageSource.gallery);
+                                    },
+                                  ),
+
+                                  // Delete Option
+                                  if (avatarUrl != null)
+                                    ListTile(
+                                      leading: const Icon(Icons.delete, color: Colors.red),
+                                      title: const Text("Remove Photo"),
+                                      onTap: () {
+                                        Navigator.pop(context);
+                                        _deleteImage();
+                                      },
+                                    ),
+                                ],
+                              ),
+                            );
+                          },
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF1E88E5),
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(color: Colors.black26, blurRadius: 4)
+                          ],
+                        ),
+                        child: const Icon(Icons.edit,
+                            color: Colors.white, size: 20),
                       ),
-                      child: const Icon(Icons.edit, color: Colors.white, size: 20),
                     ),
                   ),
                 ],
               ),
             ),
+
+
             const SizedBox(height: 20),
             FutureBuilder<String>(
               future: authService.getUserName(),
@@ -116,21 +306,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
-                        BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.03),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
+                        ),
                       ],
                     ),
                     child: Column(
                       children: [
-                        _buildSettingsTile(Icons.person, "Personal Information", () {}),
+
+                        // PERSONAL INFO
+                        _buildSettingsTile(Icons.person, "Personal Information", () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const PersonalInfoScreen()),
+                          );
+                        }),
+
                         _buildDivider(),
-                        _buildSettingsTile(Icons.notifications, "Notifications", () {}),
+
+                        // NOTIFICATIONS
+                        _buildSettingsTile(Icons.notifications, "Notifications", () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const NotificationSettingsScreen()),
+                          );
+                        }),
+
                         _buildDivider(),
-                        _buildSettingsTile(Icons.security, "Security & Privacy", () {}),
+
+                        // SECURITY
+                        _buildSettingsTile(Icons.security, "Security & Privacy", () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const SecurityScreen()),
+                          );
+                        }),
+
                         _buildDivider(),
-                        _buildSettingsTile(Icons.help, "Help & Support", () {}),
+
+                        // HELP
+                        _buildSettingsTile(Icons.help, "Help & Support", () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const HelpScreen()),
+                          );
+                        }),
+
                       ],
                     ),
                   ),
+
                 ],
               ),
             ),

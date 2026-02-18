@@ -45,5 +45,29 @@ class AuthService {
 
     return data['full_name'] ?? "User";
   }
+  // Change Password
+  Future<String?> changePassword({
+    required String email,
+    required String oldPassword,
+    required String newPassword,
+  }) async {
+    try {
+      // Step 1: Re-authenticate user
+      await _supabase.auth.signInWithPassword(
+        email: email,
+        password: oldPassword,
+      );
+
+      // Step 2: Update password
+      await _supabase.auth.updateUser(
+        UserAttributes(password: newPassword),
+      );
+
+      return null; // success
+    } catch (e) {
+      return e.toString(); // error message
+    }
+  }
+
 
 }

@@ -31,4 +31,55 @@ class SupabaseService {
 
     return NextClass.fromMap(response.first);
   }
+
+  // =========================
+  // GET USER PROFILE
+  // =========================
+  Future<Map<String, dynamic>?> getProfile() async {
+    final user = _client.auth.currentUser;
+
+    if (user == null) return null;
+
+    final response = await _client
+        .from('profiles')
+        .select()
+        .eq('id', user.id)
+        .maybeSingle(); // safer than single()
+
+    return response;
+  }
+
+  // =========================
+  // UPDATE USER PROFILE
+  // =========================
+  Future<void> updateProfile(Map<String, dynamic> profile) async {
+    final user = _client.auth.currentUser;
+
+    if (user == null) return;
+
+    await _client.from('profiles').upsert({
+      'id': user.id,
+      ...profile,
+    });
+  }
+  // notification setting
+  Future<List<Map<String, dynamic>>> getNotificationSettings() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return [];
+
+    final response = await _client
+        .from('notification_settings')
+        .select()
+        .eq('user_id', user.id);
+
+    return List<Map<String, dynamic>>.from(response);
+  }
+
+  Future<void> updateNotification(String id, bool value) async {
+    await _client
+        .from('notification_settings')
+        .update({'enabled': value})
+        .eq('id', id);
+  }
+
 }
