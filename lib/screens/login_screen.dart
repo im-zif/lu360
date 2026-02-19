@@ -27,6 +27,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isPasswordVisible = false;
   bool _isLoading = false;
 
+  String _selectedRole = 'student'; // Default role
+  final TextEditingController _adminCodeController = TextEditingController(); // Security check
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -44,6 +47,17 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
+
+    // SECURITY CHECK: If signing up as Admin, check a secret code
+    if (!_isLogin && _selectedRole == 'admin') {
+      if (_adminCodeController.text != "LU2026") { // Set your secret code here
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Invalid Admin Code!")),
+        );
+        setState(() => _isLoading = false);
+        return;
+      }
+    }
 
     try {
       if (_isLogin) {
@@ -73,6 +87,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
           debugPrint("Profile created for: ${_nameController.text}");
           debugPrint("Sign up successful for: $email");
+
+          // Save 'role' to profiles
+          await Supabase.instance.client.from('profiles').upsert({
+            'id': userId,
+            'full_name': _nameController.text.trim(),
+            'role': _selectedRole, // <--- Saving the role
+          });
         }
       }
 
@@ -189,6 +210,43 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 const SizedBox(height: 20),
+
+                if (!_isLogin) ...[
+                  const Text('Select Role', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: RadioListTile<String>(
+                          title: const Text('Student'),
+                          value: 'student',
+                          groupValue: _selectedRole,
+                          onChanged: (val) => setState(() => _selectedRole = val!),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                      Expanded(
+                        child: RadioListTile<String>(
+                          title: const Text('Admin'),
+                          value: 'admin',
+                          groupValue: _selectedRole,
+                          onChanged: (val) => setState(() => _selectedRole = val!),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Admin Code Field (Only show if Admin is selected)
+                  if (_selectedRole == 'admin') ...[
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _adminCodeController,
+                      decoration: _inputDecoration('Enter Admin Secret Code'),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ],
 
                 // Action Button
                 ElevatedButton(

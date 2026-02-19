@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/schedule.dart';
 import '../services/schedule_service.dart';
 import 'map_screen.dart';
@@ -13,20 +14,33 @@ class SchedulePage extends StatefulWidget {
 }
 
 class _SchedulePageState extends State<SchedulePage> {
-
+  // Default values just in case the user hasn't visited settings yet
   String selectedBatch = "61";
-  String selectedSection = "E";
-
-  final List<String> batches = ["60", "61", "62"];
-  final List<String> sections = ["A", "B", "C", "D", "E"];
+  String selectedSection = "A";
 
   late List<DateTime> weekDays;
   int selectedDayIndex = 0;
+  bool _isLoadingPrefs = true;
 
   @override
   void initState() {
     super.initState();
     _generateWeekDays();
+    _loadPreferences();
+  }
+
+  // Load saved preferences from SettingsScreen
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (mounted) {
+      setState(() {
+        // Grab the saved preferences, or fallback to the defaults if null
+        selectedBatch = prefs.getString('selected_batch') ?? "61";
+        selectedSection = prefs.getString('selected_section') ?? "A";
+        _isLoadingPrefs = false;
+      });
+    }
   }
 
   void _generateWeekDays() {
@@ -37,16 +51,23 @@ class _SchedulePageState extends State<SchedulePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoadingPrefs) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF8F9FA),
+        body: Center(child: CircularProgressIndicator(color: Colors.blueAccent)),
+      );
+    }
+
     final selectedDayQuery = DateFormat('EEEE').format(weekDays[selectedDayIndex]);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA), // Light Background
+      backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
         backgroundColor: const Color(0xFFF8F9FA),
         elevation: 0,
         centerTitle: true,
-        systemOverlayStyle: SystemUiOverlayStyle.dark, // Dark status bar icons
-        iconTheme: const IconThemeData(color: Colors.black), // Back button color
+        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        iconTheme: const IconThemeData(color: Colors.black),
         title: const Text(
           "My Schedule",
           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black),
@@ -56,13 +77,31 @@ class _SchedulePageState extends State<SchedulePage> {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: Column(
           children: [
-            // ================= 1. COMPACT FILTERS =================
-            Row(
-              children: [
-                Expanded(child: _buildDropdownFilter("Batch", selectedBatch, batches, (val) => setState(() => selectedBatch = val!))),
-                const SizedBox(width: 12),
-                Expanded(child: _buildDropdownFilter("Section", selectedSection, sections, (val) => setState(() => selectedSection = val!))),
-              ],
+            // ================= 1. CURRENT PREFERENCE INDICATOR =================
+            // Replaced the dropdowns with a clean banner showing the current settings
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.blueAccent.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.blueAccent.withOpacity(0.2)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.people_alt_outlined, color: Colors.blueAccent, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    "Showing Batch $selectedBatch • Section $selectedSection",
+                    style: const TextStyle(
+                      color: Colors.blueAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
             ),
 
             const SizedBox(height: 20),
@@ -108,13 +147,12 @@ class _SchedulePageState extends State<SchedulePage> {
                       return ScheduleCard(
                         item: scheduleItem,
                         onTap: () {
-                          print("DEBUG: Room: ${scheduleItem.roomNo}, Model Floor: ${scheduleItem.floor}");
                           Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => MapScreen(
                                 targetRoomId: scheduleItem.roomNo,
-                                targetFloor: scheduleItem.floor, // Should now be 1.0 or 2.0
+                                targetFloor: scheduleItem.floor,
                               ),
                             ),
                           );
@@ -126,31 +164,6 @@ class _SchedulePageState extends State<SchedulePage> {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDropdownFilter(String label, String value, List<String> items, ValueChanged<String?> onChanged) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4)),
-        ],
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: value,
-          isExpanded: true,
-          icon: const Icon(Icons.keyboard_arrow_down, color: Colors.blueAccent, size: 20),
-          dropdownColor: Colors.white,
-          style: const TextStyle(color: Colors.black87, fontSize: 14, fontWeight: FontWeight.w600),
-          items: items.map((i) => DropdownMenuItem(value: i, child: Text("$label $i"))).toList(),
-          onChanged: onChanged,
         ),
       ),
     );
@@ -225,9 +238,8 @@ class _SchedulePageState extends State<SchedulePage> {
 
 class ScheduleCard extends StatelessWidget {
   final Schedule item;
-  final VoidCallback onTap; // Add this callback
+  final VoidCallback onTap;
   const ScheduleCard({super.key, required this.item, required this.onTap});
-  
 
   String _formatTime(String time) {
     if (time.isEmpty) return "";
@@ -277,7 +289,7 @@ class ScheduleCard extends StatelessWidget {
                       width: 4,
                       height: 55,
                       decoration: BoxDecoration(
-                        color: item.color, // Keeps the color strip from the model
+                        color: item.color,
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),

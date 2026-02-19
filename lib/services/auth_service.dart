@@ -7,8 +7,8 @@ class AuthService {
   //Sign in with email and password
   Future<AuthResponse> signInWithEmailPassword(String email, String password) async {
     return await _supabase.auth.signInWithPassword(
-      email: email,
-      password: password
+        email: email,
+        password: password
     );
   }
 
@@ -67,6 +67,40 @@ class AuthService {
     } catch (e) {
       return e.toString(); // error message
     }
+  }
+
+  // Get User Role
+  Future<String> getUserRole() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return "student";
+
+    try {
+      final data = await _supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .single();
+      return data['role']?.toString() ?? "student";
+    } catch (e) {
+      return "student";
+    }
+  }
+
+  // Add Announcement (Admin Only)
+  Future<void> addAnnouncement(String title, String subtitle) async {
+    await _supabase.from('announcements').insert({
+      'title': title,
+      'subtitle': subtitle,
+      'created_at': DateTime.now().toIso8601String(),
+    });
+  }
+
+  // Get Announcements Stream
+  Stream<List<Map<String, dynamic>>> getAnnouncementsStream() {
+    return _supabase
+        .from('announcements')
+        .stream(primaryKey: ['id'])
+        .order('created_at', ascending: false);
   }
 
 
