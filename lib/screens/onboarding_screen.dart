@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:lu_360/services/auth_gate.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -35,6 +37,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       "image": "images/student.png",
     },
   ];
+
+  // Helper function to save preference and navigate
+  Future<void> _completeOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('hasSeenOnboarding', true);
+
+    if (!mounted) return;
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => const AuthGate()),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -78,7 +93,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     child: ElevatedButton(
                       onPressed: () {
                         if (_currentPage == onboardingData.length - 1) {
-                          // Navigate to Home or Login
+                          _completeOnboarding(); // Triggers save and navigation
                         } else {
                           _controller.nextPage(
                             duration: const Duration(milliseconds: 300),
@@ -99,7 +114,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   ),
                   const SizedBox(height: 16),
                   TextButton(
-                    onPressed: () {},
+                    onPressed: _completeOnboarding, // Triggers save and navigation
                     child: Text(
                       _currentPage == onboardingData.length - 1 ? "Already have an account? Log In" : "Skip",
                       style: const TextStyle(color: Color(0xFF1E88E5), fontWeight: FontWeight.w500),
@@ -147,7 +162,7 @@ class OnboardingContent extends StatelessWidget {
           Text(
             title,
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: const Color(0xFF212121)),
+            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF212121)),
           ),
           const SizedBox(height: 16),
           Text(
@@ -160,4 +175,3 @@ class OnboardingContent extends StatelessWidget {
     );
   }
 }
-

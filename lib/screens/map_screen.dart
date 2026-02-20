@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -21,6 +22,10 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   String? _highlightedRoomId;
   List<dynamic> _rawFeatures = [];
   bool _mapReady = false;
+
+  // Default campus coordinates and zoom
+  final LatLng _defaultCenter = const LatLng(24.8694, 91.8051);
+  final double _defaultZoom = 18.0;
 
   void _animatedMapMove(LatLng destLocation, double destZoom) {
     final controller = AnimationController(
@@ -56,18 +61,45 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     controller.forward();
   }
 
+  void _animatedMapRotate() {
+    final controller = AnimationController(
+        duration: const Duration(milliseconds: 400),
+        vsync: this
+    );
+
+    double currentRotation = _mapController.camera.rotation;
+    double mod = currentRotation % 360.0;
+    double destRotation = currentRotation - mod;
+    if (mod > 180.0) {
+      destRotation += 360.0;
+    }
+
+    final rotationTween = Tween<double>(begin: currentRotation, end: destRotation);
+    final animation = CurvedAnimation(parent: controller, curve: Curves.easeInOut);
+
+    controller.addListener(() {
+      _mapController.rotate(rotationTween.evaluate(animation));
+    });
+
+    animation.addStatusListener((status) {
+      if (status == AnimationStatus.completed || status == AnimationStatus.dismissed) {
+        controller.dispose();
+      }
+    });
+
+    controller.forward();
+  }
+
   List<Marker> _buildRoomLabels() {
     List<Marker> markers = [];
 
     for (var feature in _rawFeatures) {
       final String roomId = feature['properties']['room_no']?.toString() ?? '';
-      // We don't want to label the "walls" or empty IDs
       if (roomId.isEmpty || roomId == "null" || roomId.toLowerCase() == 'wall' || roomId.toLowerCase() == 'walls') continue;
 
       final geometry = feature['geometry'];
       List<LatLng> points = [];
 
-      // For labels, we only care about the outer boundary (the first ring)
       if (geometry['type'] == 'Polygon') {
         points = (geometry['coordinates'][0] as List).map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
       } else if (geometry['type'] == 'MultiPolygon') {
@@ -117,7 +149,6 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     return markers;
   }
 
-  // Updated to only return the outer boundary for hit-testing/centering
   List<LatLng> _extractOuterPoints(Map<String, dynamic> geometry) {
     try {
       if (geometry['type'] == 'Polygon') {
@@ -195,10 +226,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
   void _addPolygonWithHoles(List rings, String roomId, List<Polygon> list) {
     if (rings.isEmpty) return;
 
-    // The first ring is ALWAYS the outer boundary
     List<LatLng> outerPoints = (rings[0] as List).map((c) => LatLng(c[1].toDouble(), c[0].toDouble())).toList();
 
-    // Any subsequent rings are HOLES
     List<List<LatLng>> holes = [];
     if (rings.length > 1) {
       for (int i = 1; i < rings.length; i++) {
@@ -212,7 +241,7 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
     list.add(
       Polygon(
         points: outerPoints,
-        holePointsList: holes, // This is the crucial fix for your gap!
+        holePointsList: holes,
         color: isMatch
             ? Colors.yellow.withValues(alpha: 1)
             : (isWall ? Colors.brown : Colors.orangeAccent.withValues(alpha: 1)),
@@ -289,6 +318,22 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    // --- UPDATE: Safely fetch camera stats to prevent render exceptions ---
+    bool isRotated = false;
+    double currentRotation = 0.0;
+    double currentZoom = _defaultZoom;
+
+    if (_mapReady) {
+      try {
+        currentRotation = _mapController.camera.rotation;
+        currentZoom = _mapController.camera.zoom;
+        isRotated = (currentRotation % 360).abs() > 0.1;
+      } catch (e) {
+        // MapController is temporarily not ready during this exact frame.
+        // We catch the error and let it fall back to default values for a millisecond.
+      }
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("LU Campus Map"),
@@ -301,8 +346,8 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
-              initialCenter: const LatLng(24.8694, 91.8051),
-              initialZoom: 18.0,
+              initialCenter: _defaultCenter,
+              initialZoom: _defaultZoom,
               maxZoom: 22,
               onPositionChanged: (position, hasGesture) => setState(() {}),
               onMapReady: () {
@@ -319,10 +364,57 @@ class _MapScreenState extends State<MapScreen> with TickerProviderStateMixin {
                 userAgentPackageName: 'com.imtiaz.lu360',
               ),
               PolygonLayer(polygons: _polygons),
-              if (_mapReady && _mapController.camera.zoom > 20.0)
+              // Use our safely extracted currentZoom variable here
+              if (_mapReady && currentZoom > 20.0)
                 MarkerLayer(markers: _buildRoomLabels()),
             ],
           ),
+
+          // --- Reset to Campus Default View Button ---
+          Positioned(
+            top: 16,
+            left: 16,
+            child: FloatingActionButton(
+              heroTag: "reset_campus_view",
+              mini: true,
+              backgroundColor: Colors.white,
+              elevation: 4,
+              onPressed: () {
+                if (_mapReady) {
+                  _animatedMapMove(_defaultCenter, _defaultZoom);
+                }
+              },
+              child: const Icon(Icons.school, color: Colors.blueAccent, size: 24),
+            ),
+          ),
+
+          // --- Animated Compass / Reset Rotation Button ---
+          Positioned(
+            top: 16,
+            right: 16,
+            child: AnimatedOpacity(
+              opacity: isRotated ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeInOut,
+              child: IgnorePointer(
+                ignoring: !isRotated,
+                child: FloatingActionButton(
+                  heroTag: "reset_rotation",
+                  mini: true,
+                  backgroundColor: Colors.white,
+                  elevation: 4,
+                  onPressed: _animatedMapRotate,
+                  // Use our safely extracted currentRotation variable here
+                  child: Transform.rotate(
+                    angle: -currentRotation * (math.pi / -180),
+                    child: const Icon(Icons.navigation, color: Colors.redAccent, size: 28),
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // --- Floor Selection Buttons ---
           Positioned(
             right: 20,
             bottom: 40,
